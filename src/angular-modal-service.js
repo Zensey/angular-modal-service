@@ -10,6 +10,44 @@
 
   var module = angular.module('angularModalService', []);
 
+
+  module.directive('modalBackdrop',
+        function($animateCss, $animate /*$injector, $modalStack*/) {
+            return {
+                replace: true,
+                templateUrl: 'templates/assets/dialog-backdrop.html',
+                compile: function(tElement, tAttrs) {
+                    //tElement.addClass('fade');
+                    return linkFn;
+                }
+            };
+
+            function linkFn(scope, element, attrs) {
+                $animate.addClass(element, 'in');
+                //element.bind('click', function() {
+                //    console.log('>');
+                //});
+
+                //if (attrs.modalInClass) {
+                //    $animateCss(element, {
+                //        addClass: attrs.modalInClass
+                //    }).start();
+                //
+                //    scope.$on($modalStack.NOW_CLOSING_EVENT, function(e, setIsAsync) {
+                //        var done = setIsAsync();
+                //        if (scope.modalOptions.animation) {
+                //            $animateCss(element, {
+                //                removeClass: attrs.modalInClass
+                //            }).start().then(done);
+                //        } else {
+                //            done();
+                //        }
+                //    });
+                //}
+            }
+        })
+
+
   module.factory('ModalService', ['$animate', '$document', '$compile', '$controller', '$http', '$rootScope', '$q', '$templateRequest', '$timeout',
     function($animate, $document, $compile, $controller, $http, $rootScope, $q, $templateRequest, $timeout) {
 
@@ -18,6 +56,7 @@
 
     function ModalService() {
 
+      var open_dlg_counter = 0;
       var self = this;
 
       //  Returns a promise which gets the template, either
@@ -52,6 +91,8 @@
       };
 
       self.showModal = function(options) {
+        open_dlg_counter++;
+        console.log('open_dlg_counter', open_dlg_counter);
 
         //  Create a deferred we'll resolve when the modal is ready.
         var deferred = $q.defer();
@@ -61,6 +102,12 @@
         if(!controllerName) {
           deferred.reject("No controller has been specified.");
           return deferred.promise;
+        }
+
+        //  If a 'controllerAs' option has been provided, we change the controller
+        //  name to use 'as' syntax. $controller will automatically handle this.
+        if(options.controllerAs) {
+          controllerName = controllerName + " as " + options.controllerAs;
         }
 
         //  Get the actual html of the template.
@@ -77,23 +124,25 @@
             //  The controller can also provide a delay for closing - this is
             //  helpful if there are closing animations which must finish first.
             var closeDeferred = $q.defer();
-            var closedDeferred = $q.defer();
+            var closeCompleteDeferred = $q.defer();
             var inputs = {
               $scope: modalScope,
               close: function(result, delay) {
+                open_dlg_counter--;
+
                 if(delay === undefined || delay === null) delay = 0;
                 $timeout(function() {
                   //  Resolve the 'close' promise.
                   closeDeferred.resolve(result);
 
                   //  Let angular remove the element and wait for animations to finish.
-                  $animate.leave(modalElement)
+                    $animate.leave(modalElement)
                     .then(function () {
-                      //  Resolve the 'closed' promise.
-                      closedDeferred.resolve(result);
+                      //  Resolve the 'closeComplete' promise.
+                      closeCompleteDeferred.resolve(result);
 
                       //  We can now clean up the scope
-                      modalScope.$destroy();
+                        modalScope.$destroy();
 
                       //  Unless we null out all of these objects we seem to suffer
                       //  from memory leaks, if anyone can explain why then I'd
@@ -106,25 +155,43 @@
                       modalElement = null;
                       modalScope = null;
                     });
+
+
+
+                  $animate.leave(backdropElement)
+                   .then(function () {
+                       backdropScope.$destroy();
+                   });
+
                 }, delay);
               }
             };
 
             //  If we have provided any inputs, pass them to the controller.
-            if(options.inputs) angular.extend(inputs, options.inputs);
+            if(options.inputs) {
+              for(var inputName in options.inputs) {
+                inputs[inputName] = options.inputs[inputName];
+              }
+            }
+
+            //  Parse the modal HTML into a DOM element (in template form).
+            var modalElementTemplate = angular.element(template);
 
             //  Compile then link the template element, building the actual element.
             //  Set the $element on the inputs so that it can be injected if required.
-            var linkFn = $compile(template);
+            var linkFn = $compile(modalElementTemplate);
             var modalElement = linkFn(modalScope);
             inputs.$element = modalElement;
 
             //  Create the controller, explicitly specifying the scope to use.
-            var modalController = $controller(options.controller, inputs);
+            var modalController = $controller(controllerName, inputs);
 
-            if(options.controllerAs){
-              modalScope[options.controllerAs] = modalController ;
-            }
+            //backdrop
+            var backdropScope = $rootScope.$new();
+            var backdropDomEl = angular.element('<div modal-backdrop></div>');
+            var backdropElement = $compile(backdropDomEl)(backdropScope);
+
+
             //  Finally, append the modal to the dom.
             if (options.appendElement) {
               // append to custom append element
@@ -132,6 +199,10 @@
             } else {
               // append to body when no custom append element is specified
               appendChild(body, modalElement);
+
+              body.append(backdropElement);
+              //$animate.enter(modalElement, body);
+              //backdropElement.append(modalElement)
             }
 
             //  We now have a modal object...
@@ -140,7 +211,7 @@
               scope: modalScope,
               element: modalElement,
               close: closeDeferred.promise,
-              closed: closedDeferred.promise
+              closeComplete: closeCompleteDeferred.promise
             };
 
             //  ...which is passed to the caller via the promise.

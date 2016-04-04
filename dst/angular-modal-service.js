@@ -15,7 +15,7 @@
         function($animateCss, $animate /*$injector, $modalStack*/) {
             return {
                 replace: true,
-                templateUrl: 'templates/assets/dialog-backdrop.html',
+                templateUrl: 'templates/dialogs/dialog-backdrop.html',
                 compile: function(tElement, tAttrs) {
                     //tElement.addClass('fade');
                     return linkFn;
